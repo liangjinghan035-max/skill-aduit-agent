@@ -249,25 +249,37 @@ def api_audit_stream():
         def cached_stream():
             yield f"data: {json.dumps({'step': 'cached', 'message': '命中缓存！直接返回已有报告', 'pct': 100})}\n\n"
             yield f"data: {json.dumps({'step': 'result', 'data': cached})}\n\n"
-        return Response(stream_with_context(cached_stream()), mimetype="text/event-stream")
+        
+        headers = {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        }
+        return Response(stream_with_context(cached_stream()), mimetype="text/event-stream", headers=headers)
 
     # 流式审计
+    print(f"[*] Starting audit stream for: {url}")
     progress_q = queue.Queue()
 
     def generate():
         github_url = f"https://github.com/{owner}/{repo}"
 
         # 克隆阶段
+        print(f"[*] Step 1: Cloning {github_url}")
         yield f"data: {json.dumps({'step': 'clone', 'message': '正在克隆仓库...', 'pct': 5})}\n\n"
 
         repo_path = clone_repo(github_url)
         if not repo_path:
             yield f"data: {json.dumps({'step': 'error', 'message': '克隆仓库失败'})}\n\n"
+            print(f"[!] Error: Failed to clone {github_url}")
             return
 
+        print(f"[*] Repo cloned to: {repo_path}")
         yield f"data: {json.dumps({'step': 'clone_done', 'message': '仓库克隆完成', 'pct': 15})}\n\n"
 
         # 在线程中运行审计
+        print(f"[*] Step 2: Running audit thread")
         result_holder = [None]
 
         def audit_thread():
@@ -286,11 +298,19 @@ def api_audit_stream():
 
         # 发送最终结果
         if result_holder[0] and "error" not in result_holder[0]:
+            print(f"[*] Audit completed successfully for {owner}/{repo}")
             yield f"data: {json.dumps({'step': 'result', 'data': result_holder[0]})}\n\n"
         elif result_holder[0]:
+            print(f"[!] Audit failed for {owner}/{repo}: {result_holder[0].get('error')}")
             yield f"data: {json.dumps({'step': 'error', 'message': result_holder[0].get('error', '未知错误')})}\n\n"
 
-    return Response(stream_with_context(generate()), mimetype="text/event-stream")
+    headers = {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
+    }
+    return Response(stream_with_context(generate()), mimetype="text/event-stream", headers=headers)
 
 
 @app.route("/api/cache")

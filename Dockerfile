@@ -7,6 +7,9 @@ RUN apt-get update && \
 
 WORKDIR /app
 
+# Enable unbuffered logging
+ENV PYTHONUNBUFFERED=1
+
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
