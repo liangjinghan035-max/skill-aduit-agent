@@ -1,0 +1,11 @@
+{
+  "category": "GRAY_AREA",
+  "severity": "MEDIUM",
+  "description": "Math skill using eval() - legitimate use case but needs sandboxing",
+  "expected_analysis": {
+    "is_gray_area": true,
+    "correct_usage": "Simple math expressions like 'sqrt(16) + pi'",
+    "dangerous_usage": "Crafted expressions can escape the sandbox: ().__class__.__bases__[0].__subclasses__() etc.",
+    "recommendation": "Replace eval() with ast.literal_eval() or a proper expression parser like sympy or numexpr"
+  }
+}

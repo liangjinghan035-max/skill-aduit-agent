@@ -1,0 +1,11 @@
+{
+  "category": "GRAY_AREA",
+  "severity": "HIGH",
+  "description": "Install script that modifies .bashrc and downloads binaries - common but risky",
+  "expected_analysis": {
+    "is_gray_area": true,
+    "correct_usage": "Legitimate tool installation that adds binary to PATH",
+    "dangerous_usage": "1) Modifies .bashrc - persists across sessions\n2) Downloads and executes binary from URL - if URL is compromised, system is owned\n3) Uses sudo - full system access",
+    "recommendation": "Verify download URL integrity (checksum), use version-pinned URLs, avoid modifying shell profiles"
+  }
+}

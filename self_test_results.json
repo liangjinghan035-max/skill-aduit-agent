@@ -1,0 +1,128 @@
+{
+  "tp_01_hidden_backdoor": {
+    "category": "TRUE_POSITIVE",
+    "expected_severity": "CRITICAL",
+    "detected_severity": "CRITICAL",
+    "findings_count": 6,
+    "dep_issues_count": 0,
+    "obfuscation_detected": true,
+    "passed": true
+  },
+  "tp_02_data_exfiltration": {
+    "category": "TRUE_POSITIVE",
+    "expected_severity": "HIGH",
+    "detected_severity": "HIGH",
+    "findings_count": 3,
+    "dep_issues_count": 0,
+    "obfuscation_detected": false,
+    "passed": true
+  },
+  "tp_03_supply_chain": {
+    "category": "TRUE_POSITIVE",
+    "expected_severity": "HIGH",
+    "detected_severity": "CRITICAL",
+    "findings_count": 0,
+    "dep_issues_count": 2,
+    "obfuscation_detected": false,
+    "passed": true
+  },
+  "tn_01_legitimate_subprocess": {
+    "category": "TRUE_NEGATIVE",
+    "expected_severity": "SAFE",
+    "detected_severity": "INFO",
+    "findings_count": 3,
+    "dep_issues_count": 0,
+    "obfuscation_detected": false,
+    "passed": true
+  },
+  "tn_02_legitimate_file_ops": {
+    "category": "TRUE_NEGATIVE",
+    "expected_severity": "SAFE",
+    "detected_severity": "MEDIUM",
+    "findings_count": 4,
+    "dep_issues_count": 0,
+    "obfuscation_detected": false,
+    "passed": true
+  },
+  "ga_01_eval_template": {
+    "category": "GRAY_AREA",
+    "expected_severity": "MEDIUM",
+    "detected_severity": "CRITICAL",
+    "findings_count": 1,
+    "dep_issues_count": 0,
+    "obfuscation_detected": false,
+    "passed": true
+  },
+  "ga_02_unrestricted_subprocess": {
+    "category": "GRAY_AREA",
+    "expected_severity": "HIGH",
+    "detected_severity": "CRITICAL",
+    "findings_count": 1,
+    "dep_issues_count": 0,
+    "obfuscation_detected": false,
+    "passed": true
+  },
+  "ga_03_pickle_load": {
+    "category": "GRAY_AREA",
+    "expected_severity": "HIGH",
+    "detected_severity": "LOW",
+    "findings_count": 2,
+    "dep_issues_count": 0,
+    "obfuscation_detected": false,
+    "passed": true
+  },
+  "ev_01_string_construction": {
+    "category": "TRUE_POSITIVE",
+    "expected_severity": "CRITICAL",
+    "detected_severity": "HIGH",
+    "findings_count": 1,
+    "dep_issues_count": 0,
+    "obfuscation_detected": true,
+    "passed": true
+  },
+  "ev_02_decorator_hiding": {
+    "category": "TRUE_POSITIVE",
+    "expected_severity": "HIGH",
+    "detected_severity": "HIGH",
+    "findings_count": 2,
+    "dep_issues_count": 0,
+    "obfuscation_detected": false,
+    "passed": true
+  },
+  "ev_03_env_conditional": {
+    "category": "TRUE_POSITIVE",
+    "expected_severity": "CRITICAL",
+    "detected_severity": "HIGH",
+    "findings_count": 3,
+    "dep_issues_count": 0,
+    "obfuscation_detected": false,
+    "passed": true
+  },
+  "tp_04_malicious_install_sh": {
+    "category": "TRUE_POSITIVE",
+    "expected_severity": "CRITICAL",
+    "detected_severity": "CRITICAL",
+    "findings_count": 5,
+    "dep_issues_count": 0,
+    "obfuscation_detected": false,
+    "passed": true
+  },
+  "tn_03_legitimate_install_sh": {
+    "category": "TRUE_NEGATIVE",
+    "expected_severity": "SAFE",
+    "detected_severity": "MEDIUM",
+    "findings_count": 1,
+    "dep_issues_count": 0,
+    "obfuscation_detected": false,
+    "passed": true
+  },
+  "ga_04_shell_gray_area": {
+    "category": "GRAY_AREA",
+    "expected_severity": "HIGH",
+    "detected_severity": "HIGH",
+    "findings_count": 4,
+    "dep_issues_count": 0,
+    "obfuscation_detected": false,
+    "passed": true
+  }
+}

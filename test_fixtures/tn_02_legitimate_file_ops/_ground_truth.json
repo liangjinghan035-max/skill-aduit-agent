@@ -1,0 +1,6 @@
+{
+  "category": "TRUE_NEGATIVE",
+  "severity": "SAFE",
+  "description": "File manager skill with proper path validation",
+  "expected_findings": []
+}

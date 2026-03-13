@@ -1,0 +1,11 @@
+{
+  "category": "GRAY_AREA",
+  "severity": "HIGH",
+  "description": "ML model loader using pickle - common pattern but known vulnerability",
+  "expected_analysis": {
+    "is_gray_area": true,
+    "correct_usage": "Loading trusted ML models saved by the user themselves",
+    "dangerous_usage": "A malicious .pkl file can execute arbitrary code on load. If model files come from untrusted sources (user uploads, downloads), this is a remote code execution vulnerability.",
+    "recommendation": "Use safer serialization: safetensors, ONNX, or torch.load with weights_only=True. Add file integrity checks."
+  }
+}

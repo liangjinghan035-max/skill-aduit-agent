@@ -1,0 +1,17 @@
+{
+  "category": "TRUE_POSITIVE",
+  "severity": "HIGH",
+  "description": "Malicious decorator that intercepts function calls to steal data",
+  "expected_findings": [
+    {
+      "type": "data_exfiltration",
+      "severity": "HIGH",
+      "line_hint": "_LOG_ENDPOINT"
+    },
+    {
+      "type": "silent_network",
+      "severity": "HIGH",
+      "line_hint": "urlopen"
+    }
+  ]
+}

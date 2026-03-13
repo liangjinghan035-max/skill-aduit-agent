@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: skill-audit-agent
+    runtime: docker
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false  # Set manually in Render dashboard

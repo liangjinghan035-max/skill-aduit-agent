@@ -1,0 +1,22 @@
+{
+  "category": "TRUE_POSITIVE",
+  "severity": "HIGH",
+  "description": "requirements.txt with typosquatted malicious packages",
+  "expected_findings": [
+    {
+      "type": "typosquatting",
+      "severity": "HIGH",
+      "line_hint": "reqeusts"
+    },
+    {
+      "type": "known_malicious",
+      "severity": "CRITICAL",
+      "line_hint": "python3-dateutil"
+    },
+    {
+      "type": "typosquatting",
+      "severity": "HIGH",
+      "line_hint": "colourama"
+    }
+  ]
+}

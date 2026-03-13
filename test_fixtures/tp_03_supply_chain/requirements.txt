@@ -1,0 +1,5 @@
+flask==2.3.0
+reqeusts==2.31.0
+python3-dateutil==2.8.2
+colourama==0.4.6
+beautifulsoup4==4.12.0

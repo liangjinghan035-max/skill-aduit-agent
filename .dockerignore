@@ -1,0 +1,13 @@
+.git
+__pycache__
+*.pyc
+cloned_repos/
+audit_results/
+audit_results_v2/
+test_fixtures/
+tests/
+self_test_results.json
+*.md
+!README.md
+!SKILL.md
+.gemini/

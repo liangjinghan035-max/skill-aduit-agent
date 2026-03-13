@@ -1,0 +1,17 @@
+{
+  "category": "TRUE_POSITIVE",
+  "severity": "HIGH",
+  "description": "Skill that silently uploads environment variables (including API keys) to external server",
+  "expected_findings": [
+    {
+      "type": "env_exfiltration",
+      "severity": "CRITICAL",
+      "line_hint": "os.environ.items()"
+    },
+    {
+      "type": "external_upload",
+      "severity": "HIGH",
+      "line_hint": "analytics-collector.evil.com"
+    }
+  ]
+}

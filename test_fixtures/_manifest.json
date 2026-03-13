@@ -1,0 +1,72 @@
+{
+  "tp_01_hidden_backdoor": {
+    "path": "E:\\starchild\u65b0\u52a0\u5761\u5b9e\u4e60\\skill-audit-agent\\test_fixtures\\tp_01_hidden_backdoor",
+    "category": "TRUE_POSITIVE",
+    "severity": "CRITICAL"
+  },
+  "tp_02_data_exfiltration": {
+    "path": "E:\\starchild\u65b0\u52a0\u5761\u5b9e\u4e60\\skill-audit-agent\\test_fixtures\\tp_02_data_exfiltration",
+    "category": "TRUE_POSITIVE",
+    "severity": "HIGH"
+  },
+  "tp_03_supply_chain": {
+    "path": "E:\\starchild\u65b0\u52a0\u5761\u5b9e\u4e60\\skill-audit-agent\\test_fixtures\\tp_03_supply_chain",
+    "category": "TRUE_POSITIVE",
+    "severity": "HIGH"
+  },
+  "tn_01_legitimate_subprocess": {
+    "path": "E:\\starchild\u65b0\u52a0\u5761\u5b9e\u4e60\\skill-audit-agent\\test_fixtures\\tn_01_legitimate_subprocess",
+    "category": "TRUE_NEGATIVE",
+    "severity": "SAFE"
+  },
+  "tn_02_legitimate_file_ops": {
+    "path": "E:\\starchild\u65b0\u52a0\u5761\u5b9e\u4e60\\skill-audit-agent\\test_fixtures\\tn_02_legitimate_file_ops",
+    "category": "TRUE_NEGATIVE",
+    "severity": "SAFE"
+  },
+  "ga_01_eval_template": {
+    "path": "E:\\starchild\u65b0\u52a0\u5761\u5b9e\u4e60\\skill-audit-agent\\test_fixtures\\ga_01_eval_template",
+    "category": "GRAY_AREA",
+    "severity": "MEDIUM"
+  },
+  "ga_02_unrestricted_subprocess": {
+    "path": "E:\\starchild\u65b0\u52a0\u5761\u5b9e\u4e60\\skill-audit-agent\\test_fixtures\\ga_02_unrestricted_subprocess",
+    "category": "GRAY_AREA",
+    "severity": "HIGH"
+  },
+  "ga_03_pickle_load": {
+    "path": "E:\\starchild\u65b0\u52a0\u5761\u5b9e\u4e60\\skill-audit-agent\\test_fixtures\\ga_03_pickle_load",
+    "category": "GRAY_AREA",
+    "severity": "HIGH"
+  },
+  "ev_01_string_construction": {
+    "path": "E:\\starchild\u65b0\u52a0\u5761\u5b9e\u4e60\\skill-audit-agent\\test_fixtures\\ev_01_string_construction",
+    "category": "TRUE_POSITIVE",
+    "severity": "CRITICAL"
+  },
+  "ev_02_decorator_hiding": {
+    "path": "E:\\starchild\u65b0\u52a0\u5761\u5b9e\u4e60\\skill-audit-agent\\test_fixtures\\ev_02_decorator_hiding",
+    "category": "TRUE_POSITIVE",
+    "severity": "HIGH"
+  },
+  "ev_03_env_conditional": {
+    "path": "E:\\starchild\u65b0\u52a0\u5761\u5b9e\u4e60\\skill-audit-agent\\test_fixtures\\ev_03_env_conditional",
+    "category": "TRUE_POSITIVE",
+    "severity": "CRITICAL"
+  },
+  "tp_04_malicious_install_sh": {
+    "path": "E:\\starchild\u65b0\u52a0\u5761\u5b9e\u4e60\\skill-audit-agent\\test_fixtures\\tp_04_malicious_install_sh",
+    "category": "TRUE_POSITIVE",
+    "severity": "CRITICAL"
+  },
+  "tn_03_legitimate_install_sh": {
+    "path": "E:\\starchild\u65b0\u52a0\u5761\u5b9e\u4e60\\skill-audit-agent\\test_fixtures\\tn_03_legitimate_install_sh",
+    "category": "TRUE_NEGATIVE",
+    "severity": "SAFE"
+  },
+  "ga_04_shell_gray_area": {
+    "path": "E:\\starchild\u65b0\u52a0\u5761\u5b9e\u4e60\\skill-audit-agent\\test_fixtures\\ga_04_shell_gray_area",
+    "category": "GRAY_AREA",
+    "severity": "HIGH"
+  }
+}

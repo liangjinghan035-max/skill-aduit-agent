@@ -1,0 +1,22 @@
+{
+  "category": "TRUE_POSITIVE",
+  "severity": "CRITICAL",
+  "description": "Code that only activates malicious behavior in production (not during testing)",
+  "expected_findings": [
+    {
+      "type": "conditional_execution",
+      "severity": "CRITICAL",
+      "line_hint": "production"
+    },
+    {
+      "type": "persistence_mechanism",
+      "severity": "CRITICAL",
+      "line_hint": "crontab"
+    },
+    {
+      "type": "c2_beacon",
+      "severity": "CRITICAL",
+      "line_hint": "c2.evil.com"
+    }
+  ]
+}

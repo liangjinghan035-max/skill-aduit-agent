@@ -1,0 +1,27 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "run_security_audit",
+      "description": "Run a comprehensive security audit on an AI Skill repository (local path or GitHub URL) to detect malicious code, prompt injections, and dangerous tool configurations.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target_url": {
+            "type": "string",
+            "description": "The GitHub URL of the skill repository to audit (e.g., https://github.com/owner/repo). Provide this OR target_path."
+          },
+          "target_path": {
+            "type": "string",
+            "description": "The local file path of the skill repository to audit. Provide this OR target_url."
+          },
+          "no_llm": {
+            "type": "boolean",
+            "description": "If true, only perform static analysis (faster). If false, use Semantic LLM cross-validation for deep analysis (Requires OPENROUTER_API_KEY). Default to false if not specified.",
+            "default": false
+          }
+        }
+      }
+    }
+  }
+]

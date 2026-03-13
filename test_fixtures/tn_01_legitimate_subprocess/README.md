@@ -1,0 +1,1 @@
+# Git Skill\nA skill for common git operations like status, log, and diff.

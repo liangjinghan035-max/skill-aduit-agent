@@ -1,0 +1,22 @@
+{
+  "category": "TRUE_POSITIVE",
+  "severity": "CRITICAL",
+  "description": "Malicious code using string construction to evade static analysis",
+  "expected_findings": [
+    {
+      "type": "obfuscation_chr",
+      "severity": "CRITICAL",
+      "line_hint": "chr(111)"
+    },
+    {
+      "type": "dynamic_import",
+      "severity": "HIGH",
+      "line_hint": "importlib.import_module"
+    },
+    {
+      "type": "getattr_dynamic",
+      "severity": "HIGH",
+      "line_hint": "getattr(module"
+    }
+  ]
+}

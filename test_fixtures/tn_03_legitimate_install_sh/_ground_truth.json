@@ -1,0 +1,6 @@
+{
+  "category": "TRUE_NEGATIVE",
+  "severity": "SAFE",
+  "description": "Normal install script that copies files and sets permissions",
+  "expected_findings": []
+}

@@ -1,0 +1,6 @@
+{
+  "category": "TRUE_NEGATIVE",
+  "severity": "SAFE",
+  "description": "Git skill that legitimately uses subprocess to run git commands",
+  "expected_findings": []
+}

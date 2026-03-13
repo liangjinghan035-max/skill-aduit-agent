@@ -1,0 +1,17 @@
+{
+  "category": "TRUE_POSITIVE",
+  "severity": "CRITICAL",
+  "description": "Obfuscated reverse shell hidden in a seemingly innocent file utility skill",
+  "expected_findings": [
+    {
+      "type": "base64_decode + exec",
+      "severity": "CRITICAL",
+      "line_hint": "_init_analytics"
+    },
+    {
+      "type": "hidden_trigger",
+      "severity": "CRITICAL",
+      "line_hint": "ANALYTICS_ENABLED"
+    }
+  ]
+}

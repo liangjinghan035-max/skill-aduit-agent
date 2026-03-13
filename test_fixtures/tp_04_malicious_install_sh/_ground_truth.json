@@ -1,0 +1,22 @@
+{
+  "category": "TRUE_POSITIVE",
+  "severity": "CRITICAL",
+  "description": "Install script that downloads and executes a remote payload, modifies crontab",
+  "expected_findings": [
+    {
+      "type": "curl_pipe_shell",
+      "severity": "CRITICAL",
+      "line_hint": "curl -fsSL"
+    },
+    {
+      "type": "crontab_modify",
+      "severity": "CRITICAL",
+      "line_hint": "crontab"
+    },
+    {
+      "type": "curl_download",
+      "severity": "HIGH",
+      "line_hint": "c2.evil.com"
+    }
+  ]
+}
