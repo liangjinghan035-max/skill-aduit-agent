@@ -52,10 +52,18 @@ def parse_github_url(url: str) -> tuple:
         r"(?:https?://)?github\.com/([^/]+)/([^/.]+?)(?:\.git)?$",
         r"^([^/]+)/([^/]+)$",
     ]
+    # 排除常见的非 GitHub 链接误用
+    blacklist = ["google.com", "bing.com", "baidu.com", "search?"]
+    if any(b in url.lower() for b in blacklist):
+        return None, None
+
     for pat in patterns:
         m = re.match(pat, url)
         if m:
-            return m.group(1), m.group(2)
+            owner, repo = m.group(1), m.group(2)
+            # 进一步过滤可能的 URL 参数
+            repo = repo.split('?')[0].split('#')[0]
+            return owner, repo
     return None, None
 
 
@@ -105,24 +113,56 @@ def find_cached_report(owner: str, repo: str) -> dict | None:
     return latest_report
 
 
-def clone_repo(url: str) -> str | None:
-    """浅克隆 GitHub 仓库，返回本地路径"""
+def clone_repo(url: str) -> tuple[str, str]:
+    """浅克隆 GitHub 仓库，返回 (本地路径, 错误信息)"""
+    import shutil
     repo_name = url.rstrip("/").split("/")[-1].replace(".git", "")
     repo_path = os.path.join(CLONE_DIR, repo_name)
 
     os.makedirs(CLONE_DIR, exist_ok=True)
 
+    # 如果文件夹已存在，检查是否可用，否则清理掉
     if os.path.exists(repo_path):
-        return repo_path
+        if os.path.exists(os.path.join(repo_path, ".git")):
+            print(f"[*] Repository already exists and is valid: {repo_path}")
+            return repo_path, ""
+        else:
+            print(f"[*] Path exists but is not a git repo, removing: {repo_path}")
+            try:
+                shutil.rmtree(repo_path)
+            except Exception as e:
+                return None, f"无法清理旧目录: {str(e)}"
 
+    print(f"[*] Cloning {url} to {repo_path}...")
     try:
-        subprocess.run(
+        # 使用环境变量禁止 Git 弹出交互式提示 (credential prompts)
+        env = os.environ.copy()
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["GIT_ASKPASS"] = "true"
+        
+        result = subprocess.run(
             ["git", "clone", "--depth", "1", url, repo_path],
-            check=True, capture_output=True, timeout=120,
+            check=False, 
+            capture_output=True, 
+            timeout=60,
+            env=env
         )
-        return repo_path
-    except Exception:
-        return None
+        
+        if result.returncode != 0:
+            error_msg = result.stderr.decode(errors="ignore").strip()
+            print(f"[!] Git Clone Failed: {error_msg}")
+            # 清理残留的空文件夹
+            if os.path.exists(repo_path):
+                shutil.rmtree(repo_path)
+            return None, error_msg
+            
+        return repo_path, ""
+    except Exception as e:
+        print(f"[!] Clone Exception: {str(e)}")
+        if os.path.exists(repo_path):
+            try: shutil.rmtree(repo_path)
+            except: pass
+        return None, str(e)
 
 
 def run_audit(owner: str, repo: str, repo_path: str, progress_q: queue.Queue) -> dict:
@@ -216,9 +256,9 @@ def api_audit():
 
     # 2. 克隆仓库
     github_url = f"https://github.com/{owner}/{repo}"
-    repo_path = clone_repo(github_url)
+    repo_path, clone_err = clone_repo(github_url)
     if not repo_path:
-        return jsonify({"error": f"克隆仓库失败: {github_url}"}), 500
+        return jsonify({"error": f"克隆仓库失败: {clone_err or github_url}"}), 500
 
     # 3. 同步执行审计（静态分析通常很快）
     progress_q = queue.Queue()
@@ -269,10 +309,11 @@ def api_audit_stream():
         print(f"[*] Step 1: Cloning {github_url}")
         yield f"data: {json.dumps({'step': 'clone', 'message': '正在克隆仓库...', 'pct': 5})}\n\n"
 
-        repo_path = clone_repo(github_url)
+        repo_path, clone_err = clone_repo(github_url)
         if not repo_path:
-            yield f"data: {json.dumps({'step': 'error', 'message': '克隆仓库失败'})}\n\n"
-            print(f"[!] Error: Failed to clone {github_url}")
+            error_msg = f"克隆仓库失败: {clone_err}"
+            yield f"data: {json.dumps({'step': 'error', 'message': error_msg})}\n\n"
+            print(f"[!] Error: {error_msg}")
             return
 
         print(f"[*] Repo cloned to: {repo_path}")

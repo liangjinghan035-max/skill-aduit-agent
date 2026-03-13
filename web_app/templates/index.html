@@ -216,6 +216,7 @@
 
             // Reset UI
             scanBtn.disabled = true;
+            repoInput.disabled = true; // Lock input
             scanBtn.classList.add('loading');
             progressSection.style.display = 'block';
             resultsSection.style.display = 'none';
@@ -263,6 +264,7 @@
             }).catch(err => {
                 showHint(`请求失败: ${err.message}`, 'error');
                 scanBtn.disabled = false;
+                repoInput.disabled = false;
                 scanBtn.classList.remove('loading');
             });
         }
@@ -273,6 +275,7 @@
                 progressSection.style.display = 'none';
                 showReport(msg.data);
                 scanBtn.disabled = false;
+                repoInput.disabled = false; // Unlock
                 scanBtn.classList.remove('loading');
                 loadCache(); // Refresh cache list
                 return;
@@ -282,6 +285,7 @@
                 showHint(msg.message, 'error');
                 progressSection.style.display = 'none';
                 scanBtn.disabled = false;
+                repoInput.disabled = false; // Unlock
                 scanBtn.classList.remove('loading');
                 return;
             }
