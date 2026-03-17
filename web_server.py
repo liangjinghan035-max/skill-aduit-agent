@@ -22,7 +22,10 @@ sys.path.insert(0, PROJECT_ROOT)
 from audit_engine.static_analyzer import analyze_repo
 from audit_engine.report_generator import generate_report, save_report, get_repo_commit_info
 from audit_engine.trust_verifier import (
-    extract_trust_assumptions, verify_trust_assumptions, apply_downgrade,
+    extract_trust_assumptions,
+    extract_trust_assumptions_from_codebase,
+    verify_trust_assumptions,
+    apply_downgrade,
 )
 from configs.audit_config import AUDIT_AGENT_VERSION
 
@@ -350,7 +353,16 @@ def run_audit(owner: str, repo: str, repo_path: str, progress_q: queue.Queue, su
                     model=tc_config["model"],
                 )
 
+                # 兜底保障：即便 LLM 只返回 fallback 结构，也保留空数组避免 report 阶段缺键
+                trust_chain_result.setdefault("trust_assumptions", [])
+                trust_chain_result.setdefault("data_flows", [])
+
                 assumptions = extract_trust_assumptions(trust_chain_result)
+
+                # 兜底：若 LLM 未返回可验证假设，则从代码中自动提取域名/服务做信任假设
+                if not assumptions:
+                    assumptions = extract_trust_assumptions_from_codebase(all_files_content)
+
                 if assumptions:
                     def _progress(i, total, a):
                         progress_q.put({

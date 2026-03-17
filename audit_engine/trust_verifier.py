@@ -343,6 +343,58 @@ def extract_trust_assumptions(trust_chain_result: dict) -> list:
     return result
 
 
+def extract_trust_assumptions_from_codebase(all_files_content: dict) -> list:
+    """LLM 未能返回 trust_assumptions 时，从代码中兜底提取可验证假设。"""
+    url_pattern = re.compile(r'https?://[A-Za-z0-9._\-]+(?:/[A-Za-z0-9._\-/?=&%+]*)?')
+    domains = []
+
+    for _, content in (all_files_content or {}).items():
+        if not content:
+            continue
+        for m in url_pattern.findall(content):
+            domain = m.split("//", 1)[-1].split("/", 1)[0].lower().strip()
+            if not domain:
+                continue
+            if domain in {"localhost", "127.0.0.1"}:
+                continue
+            domains.append(domain)
+
+    # 去重保序
+    uniq_domains = []
+    seen = set()
+    for d in domains:
+        if d not in seen:
+            seen.add(d)
+            uniq_domains.append(d)
+
+    assumptions = []
+    for i, domain in enumerate(uniq_domains[:8], 1):
+        service = _service_from_domain(domain)
+        assumptions.append(TrustAssumption(
+            id=f"ta_code_api_{i:03d}",
+            category="API_ENDPOINT",
+            claim=f"{domain} is an official API endpoint for {service}",
+            subject=domain,
+        ))
+
+    # 给 API 域名补一条服务声誉假设
+    rep_services = []
+    for d in uniq_domains[:8]:
+        s = _service_from_domain(d)
+        if s and s not in rep_services:
+            rep_services.append(s)
+
+    for s in rep_services[:4]:
+        assumptions.append(TrustAssumption(
+            id=f"ta_code_rep_{s}",
+            category="SERVICE_REPUTATION",
+            claim=f"{s} is a reputable, widely-used service",
+            subject=s,
+        ))
+
+    return assumptions
+
+
 def apply_downgrade(llm_results: list, assumptions: list) -> tuple:
     """
     对验证通过的假设降级关联 findings。
