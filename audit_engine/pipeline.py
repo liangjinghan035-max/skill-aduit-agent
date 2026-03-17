@@ -25,7 +25,10 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
 from audit_engine.static_analyzer import analyze_repo, StaticAnalysisResult, ScanStats
-from audit_engine.llm_reviewer import MultiModelReviewer, ConsensusResult
+from audit_engine.llm_reviewer import MultiModelReviewer, ConsensusResult, run_trust_chain_analysis, LLMClient
+from audit_engine.trust_verifier import (
+    extract_trust_assumptions, verify_trust_assumptions, apply_downgrade, TrustAssumption
+)
 from audit_engine.report_generator import (
     generate_report, save_report, update_index, get_repo_commit_info,
 )
@@ -308,6 +311,60 @@ def audit_single_repo(
     else:
         print("  [Phase 3] LLM review disabled (--no-llm)")
 
+    # Phase 3.5: 信任链分析（全局，包含所有文件）
+    trust_chain_result = {}
+    if use_llm:
+        print("  [Phase 3.5] Trust chain analysis...")
+        try:
+            from configs.audit_config import LLM_CONFIGS
+            tc_config = LLM_CONFIGS.get("security_analyst", list(LLM_CONFIGS.values())[0])
+            tc_client = LLMClient(provider=tc_config.get("provider", "openrouter"))
+
+            # 收集所有已分析文件的内容
+            all_files_content = {}
+            for sr in static_results[:8]:
+                full_path = os.path.join(repo_path, sr.file)
+                try:
+                    with open(full_path, "r", encoding="utf-8", errors="ignore") as fh:
+                        all_files_content[sr.file] = fh.read()
+                except Exception:
+                    pass
+
+            trust_chain_result = run_trust_chain_analysis(
+                all_files_content=all_files_content,
+                skill_context=skill_context[:3000],
+                llm_client=tc_client,
+                model=tc_config["model"],
+            )
+            verdict = trust_chain_result.get("overall_trust_verdict", "UNKNOWN")
+            facts_count = len(trust_chain_result.get("verify_facts", []))
+            print(f"  Trust verdict: {verdict} | {facts_count} facts to verify")
+
+            # Phase 3.6: 自动验证信任假设
+            assumptions = extract_trust_assumptions(trust_chain_result)
+            if assumptions:
+                print(f"  [Phase 3.6] Verifying {len(assumptions)} trust assumption(s) via web search...")
+                def _progress(i, total, a):
+                    print(f"    [{i+1}/{total}] Verifying: {a.subject} ({a.category})")
+                assumptions = verify_trust_assumptions(assumptions, progress_callback=_progress)
+
+                verified_count = sum(1 for a in assumptions if a.verified)
+                failed_count = sum(1 for a in assumptions if a.verified is False)
+                print(f"  Trust verification: {verified_count} passed, {failed_count} failed, "
+                      f"{len(assumptions)-verified_count-failed_count} inconclusive")
+
+                # 降级通过验证的假设关联的 findings
+                llm_results, downgrade_log = apply_downgrade(llm_results, assumptions)
+                if downgrade_log:
+                    print(f"  Downgraded {len(downgrade_log)} finding(s):")
+                    for entry in downgrade_log:
+                        print(f"    {entry}")
+
+                trust_chain_result["trust_assumption_results"] = [a.to_dict() for a in assumptions]
+        except Exception as e:
+            print(f"  ⚠️  Trust chain analysis failed: {e}")
+            trust_chain_result = {}
+
     # Phase 5: 生成报告
     print("  [Phase 5] Generating report...")
     markdown, meta = generate_report(
@@ -320,6 +377,7 @@ def audit_single_repo(
         llm_results=llm_results,
         scenario_results=scenario_results,
         scan_stats=scan_stats.to_dict() if hasattr(scan_stats, 'to_dict') else {},
+        trust_chain_result=trust_chain_result,
     )
 
     report_dir = save_report(

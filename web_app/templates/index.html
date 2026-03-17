@@ -6,7 +6,7 @@
     <title>Skill Audit Agent — AI Security Scanner</title>
     <meta name="description" content="Scan GitHub AI skill repositories for security vulnerabilities with automated static analysis.">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
     <!-- Background Canvas -->
@@ -117,7 +117,7 @@
     </main>
 
     <!-- Markdown Renderer -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="static/marked.min.js"></script>
     
     <script>
         // ============================================================
@@ -220,45 +220,64 @@
             scanBtn.classList.add('loading');
             progressSection.style.display = 'block';
             resultsSection.style.display = 'none';
+            reportContainer.innerHTML = '';
+            resultHeader.innerHTML = '';
             progressLog.innerHTML = '';
             progressBar.style.width = '0%';
+            progressText.textContent = '正在初始化...';
+            progressPct.textContent = '0%';
             searchHint.textContent = '';
 
             // Smooth scroll to progress
             progressSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
             // Use SSE for streaming progress
-            fetch('/api/audit/stream', {
+            fetch('api/audit/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url }),
             }).then(response => {
+                if (!response.ok) {
+                    return response.text().then(txt => {
+                        throw new Error(`HTTP ${response.status}: ${txt}`);
+                    });
+                }
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
 
-                function readStream() {
-                    reader.read().then(({ done, value }) => {
-                        if (done) {
-                            scanBtn.disabled = false;
-                            scanBtn.classList.remove('loading');
-                            return;
-                        }
+                async function readStream() {
+                    try {
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) {
+                                scanBtn.disabled = false;
+                                scanBtn.classList.remove('loading');
+                                break;
+                            }
 
-                        buffer += decoder.decode(value, { stream: true });
-                        const lines = buffer.split('\n');
-                        buffer = lines.pop(); // Keep incomplete line
+                            buffer += decoder.decode(value, { stream: true });
+                            const lines = buffer.split('\n');
+                            buffer = lines.pop(); // Keep incomplete line
 
-                        for (const line of lines) {
-                            if (line.startsWith('data: ')) {
-                                try {
-                                    const msg = JSON.parse(line.slice(6));
-                                    handleProgressMessage(msg);
-                                } catch (e) {}
+                            for (const line of lines) {
+                                if (line.startsWith('data: ')) {
+                                    try {
+                                        const msg = JSON.parse(line.slice(6));
+                                        handleProgressMessage(msg);
+                                    } catch (e) {
+                                        console.warn('SSE parse error:', e, line);
+                                    }
+                                }
                             }
                         }
-                        readStream();
-                    });
+                    } catch (err) {
+                        console.error('Stream read error:', err);
+                        showHint(`流读取失败: ${err.message}`, 'error');
+                        scanBtn.disabled = false;
+                        repoInput.disabled = false;
+                        scanBtn.classList.remove('loading');
+                    }
                 }
                 readStream();
             }).catch(err => {
@@ -327,6 +346,7 @@
                 LOW: { bg: '#172d1f', border: '#22c55e', text: '#86efac', icon: '🔵' },
                 SAFE: { bg: '#172d1f', border: '#22c55e', text: '#86efac', icon: '🟢' },
                 UNKNOWN: { bg: '#1e1e2e', border: '#6b7280', text: '#9ca3af', icon: '⚪' },
+                EMPTY_REPO: { bg: '#1a1a2e', border: '#6b7280', text: '#9ca3af', icon: 'ℹ️' },
             };
             const rc = riskColors[risk] || riskColors.UNKNOWN;
 
@@ -370,7 +390,15 @@
 
             // Render markdown report
             if (data.report_md) {
-                reportContainer.innerHTML = `<div class="markdown-body">${marked.parse(data.report_md)}</div>`;
+                try {
+                    const html = (typeof marked !== 'undefined')
+                        ? marked.parse(data.report_md)
+                        : data.report_md.replace(/\n/g, '<br>');
+                    reportContainer.innerHTML = `<div class="markdown-body">${html}</div>`;
+                } catch (e) {
+                    console.warn('Markdown render error:', e);
+                    reportContainer.innerHTML = `<pre style="white-space:pre-wrap;color:#ccc">${data.report_md}</pre>`;
+                }
             }
 
             // Scroll to results
@@ -394,7 +422,7 @@
         // ============================================================
         
         function loadCache() {
-            fetch('/api/cache')
+            fetch('api/cache')
                 .then(r => r.json())
                 .then(items => {
                     if (!items.length) {

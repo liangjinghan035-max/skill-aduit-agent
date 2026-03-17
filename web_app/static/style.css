@@ -505,6 +505,18 @@ body {
     margin-bottom: 10px;
 }
 
+.markdown-body h4 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-top: 20px;
+    margin-bottom: 8px;
+    padding: 10px 14px;
+    background: rgba(99, 179, 237, 0.05);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+    color: var(--text-primary);
+}
+
 .markdown-body p { margin-bottom: 12px; }
 
 .markdown-body table {

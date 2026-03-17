@@ -49,19 +49,19 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 LLM_CONFIGS = {
     "security_analyst": {
         "provider": "openrouter",
-        "model": "anthropic/claude-sonnet-4",    # 安全分析用 Claude
+        "model": "anthropic/claude-sonnet-4.6",  # 安全分析 — Claude Sonnet 4.6
         "role": "Focused on identifying security vulnerabilities and attack vectors",
         "temperature": 0.1,
     },
     "intent_analyst": {
         "provider": "openrouter",
-        "model": "google/gemini-2.5-flash",       # 意图分析用 Gemini
+        "model": "openai/gpt-5.3-codex",  # 意图分析 — GPT Codex 5.3
         "role": "Focused on understanding code intent and distinguishing bugs from features",
         "temperature": 0.2,
     },
     "adversarial_analyst": {
         "provider": "openrouter",
-        "model": "openai/gpt-4o",                 # 红队模拟用 GPT-4o
+        "model": "google/gemini-3.1-pro-preview",  # 红队模拟 — Gemini 3.1 Pro
         "role": "Red team perspective - simulates attack scenarios",
         "temperature": 0.3,
     },
@@ -70,7 +70,7 @@ LLM_CONFIGS = {
 # Fast Agent 配置（Phase 3 用，便宜快速）
 FAST_LLM_CONFIG = {
     "provider": "openrouter",
-    "model": "google/gemini-2.5-flash",
+    "model": "anthropic/claude-sonnet-4.6",
     "temperature": 0.1,
 }
 

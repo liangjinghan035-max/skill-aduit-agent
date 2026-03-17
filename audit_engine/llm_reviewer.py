@@ -12,6 +12,7 @@ import re
 import time
 import urllib.request
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
@@ -304,7 +305,7 @@ class LLMClient:
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
 
             # OpenRouter 返回 OpenAI 格式
@@ -421,11 +422,10 @@ class MultiModelReviewer:
         """
         verdicts: list[LLMVerdict] = []
 
-        for role_name, config in self.configs.items():
+        def _call_one_role(role_name, config):
             prompt_template = ROLE_PROMPTS.get(role_name)
             if not prompt_template:
-                continue
-
+                return None
             prompt = prompt_template.format(
                 skill_context=skill_context,
                 filepath=filepath,
@@ -434,16 +434,13 @@ class MultiModelReviewer:
                 code_context=code_context[:3000],
                 file_content=file_content[:6000],
             )
-
             raw_response = self.clients[role_name].call(
                 prompt=prompt,
                 model=config["model"],
                 temperature=config.get("temperature", 0.1),
             )
-
             parsed = _parse_llm_json(raw_response)
-
-            verdict = LLMVerdict(
+            return LLMVerdict(
                 role=role_name,
                 model=config["model"],
                 severity=parsed.get("severity", "UNKNOWN"),
@@ -456,10 +453,32 @@ class MultiModelReviewer:
                 recommendation=parsed.get("recommendation", ""),
                 raw_response=raw_response[:2000],
             )
-            verdicts.append(verdict)
 
-            # Rate limiting
-            time.sleep(1)
+        # 三个模型并行调用
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {
+                executor.submit(_call_one_role, role_name, config): role_name
+                for role_name, config in self.configs.items()
+            }
+            for future in as_completed(futures):
+                try:
+                    verdict = future.result(timeout=60)
+                    if verdict is not None:
+                        verdicts.append(verdict)
+                except Exception as e:
+                    role = futures[future]
+                    verdicts.append(LLMVerdict(
+                        role=role,
+                        model="unknown",
+                        severity="UNKNOWN",
+                        confidence=0.0,
+                        is_malicious=False,
+                        is_gray_area=True,
+                        summary=f"Model call failed: {e}",
+                        legitimate_usage="",
+                        abuse_scenario="",
+                        recommendation="Retry analysis",
+                    ))
 
         return self._build_consensus(verdicts)
 
@@ -581,3 +600,123 @@ class MultiModelReviewer:
             disagreements=disagreements,
             gray_area_analysis=gray_area_analysis,
         )
+
+
+# ============================================================
+# Trust Chain Analysis
+# ============================================================
+
+TRUST_CHAIN_PROMPT = """You are a trust chain analyst for AI agent skills. Your job is NOT to decide if code is malicious — 
+that's been done already. Your job is to answer ONE specific question:
+
+**"For every sensitive operation this skill performs, where does the critical data come from, and what must be true for this to be safe?"**
+
+Context about this skill/tool:
+{skill_context}
+
+Files in this skill:
+{all_files_content}
+
+Analyze the complete data flow for these categories of sensitive data:
+1. **API Endpoints** — URLs this skill calls. Are they hardcoded? Fetched from config? Passed by the user/agent?
+2. **Contract Addresses / Wallet Addresses** — For DeFi/blockchain skills. Are addresses hardcoded (safer) or dynamic (riskier)?
+3. **Calldata / Transaction Data** — Who constructs the calldata? Is it from an external API response? Can it be tampered?
+4. **Authorization / API Keys** — Where do credentials come from? Are they leaked anywhere?
+5. **User-Controlled Inputs** — What data does the user/agent control, and what damage could they do with it?
+
+IMPORTANT: Extract explicit "trust assumptions" — the factual claims that MUST be true for this skill to be safe.
+Rules for trust assumptions:
+- Each assumption should be something that CAN be verified (by web search, docs lookup, or on-chain check)
+- Be specific: "api.1inch.io is the official 1inch endpoint" not just "the API is official"
+- Cover both ENDPOINT correctness (is the URL right?) and SERVICE REPUTATION (is the service trustworthy?)
+- For each assumption, explain clearly WHY it matters (what attack becomes possible if it's false)
+- Map each assumption to specific risks using related_risk_ids (reference the static finding IDs if available)
+
+The overall_trust_verdict should consider whether the skill's sensitive operations are justified by its documented purpose.
+For example: a DeFi swap skill MUST execute arbitrary calldata — that's expected, not a vulnerability.
+The real question is: does that calldata come from a trustworthy source?
+
+Respond in this exact JSON format:
+{{
+    "trust_chain_summary": "One paragraph: overall trust chain assessment. Focus on whether sensitive operations are justified by the skill's purpose, and what the key trust dependencies are.",
+    "data_flows": [
+        {{
+            "category": "API Endpoints|Contract Addresses|Calldata|Authorization|User Input",
+            "description": "What data is flowing, e.g. '1inch aggregator API URL'",
+            "source": "hardcoded|env_variable|user_provided|external_api_response|config_file",
+            "source_detail": "Specific file:line where this is set, e.g. 'scripts/swap.py:42 — hardcoded to https://api.1inch.io'",
+            "risk_level": "LOW|MEDIUM|HIGH|CRITICAL",
+            "risk_reason": "Why this is risky or safe given its source. If it looks risky but is justified by the skill's purpose, explain that.",
+            "required_trust_assumptions": ["ta_001", "ta_002"]
+        }}
+    ],
+    "trust_assumptions": [
+        {{
+            "category": "API_ENDPOINT|SERVICE_REPUTATION|CONTRACT_ADDRESS",
+            "claim": "api.1inch.io is the official 1inch aggregator API endpoint",
+            "subject": "api.1inch.io",
+            "why_it_matters": "If this endpoint is fake or compromised, all swap quotes and calldata come from an attacker — user funds would be stolen",
+            "consequence_if_false": "CRITICAL — attacker gains full control of transaction calldata",
+            "related_risk_ids": []
+        }},
+        {{
+            "category": "SERVICE_REPUTATION",
+            "claim": "1inch is a reputable, widely-used DeFi aggregator with no known active exploits",
+            "subject": "1inch",
+            "why_it_matters": "If 1inch itself is compromised or malicious, returned calldata could drain user wallets",
+            "consequence_if_false": "HIGH — malicious calldata passed to wallet",
+            "related_risk_ids": []
+        }}
+    ],
+    "verify_facts": [
+        {{
+            "priority": "MUST|SHOULD|NICE_TO_HAVE",
+            "fact": "Specific human-verifiable statement, e.g. 'The 1inch router address 0x1111... should match the official 1inch v5 contract on Ethereum mainnet'",
+            "how_to_verify": "Step-by-step: e.g. Check 1inch official docs at https://docs.1inch.io/docs/aggregation-protocol/smart-contract/AggregationRouterV5",
+            "what_happens_if_wrong": "Impact if this fact is false — be specific about what attack becomes possible"
+        }}
+    ],
+    "overall_trust_verdict": "TRUSTED|VERIFY_BEFORE_USE|DO_NOT_USE",
+    "verdict_reason": "One sentence explaining the verdict, referencing the key trust assumptions that must hold"
+}}
+"""
+
+
+def run_trust_chain_analysis(
+    all_files_content: dict,
+    skill_context: str,
+    llm_client: "LLMClient",
+    model: str,
+) -> dict:
+    """
+    对整个 skill 运行一次信任链分析（全局，不是 per-file）。
+    返回包含 data_flows 和 verify_facts 的 dict。
+    """
+    # 合并所有文件内容（截断到合理大小）
+    combined = ""
+    for path, content in list(all_files_content.items())[:8]:
+        combined += f"\n\n=== {path} ===\n{content[:3000]}"
+
+    prompt = TRUST_CHAIN_PROMPT.format(
+        skill_context=skill_context,
+        all_files_content=combined[:20000],
+    )
+
+    raw = llm_client.call(prompt=prompt, model=model, temperature=0.1, max_tokens=4096)
+
+    try:
+        # 提取 JSON
+        import re
+        match = re.search(r'\{[\s\S]*\}', raw)
+        if match:
+            return json.loads(match.group())
+    except Exception:
+        pass
+
+    return {
+        "trust_chain_summary": "Trust chain analysis unavailable",
+        "data_flows": [],
+        "verify_facts": [],
+        "overall_trust_verdict": "VERIFY_BEFORE_USE",
+        "verdict_reason": "Analysis failed — manual review required",
+    }

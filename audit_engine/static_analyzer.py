@@ -218,7 +218,9 @@ class EnhancedPythonVisitor(ast.NodeVisitor):
                         if real_module.split(".")[0] in rules["modules"]:
                             matched = True
                     elif not rules.get("modules"):
-                        matched = True
+                        # 仅匹配内置函数调用（如 exec/eval/compile），避免把 re.compile 误判成 builtin compile
+                        if not module_base:
+                            matched = True
                     elif not module_base:
                         if func_base in rules.get("functions", set()):
                             matched = True
@@ -1148,20 +1150,30 @@ class ScanStats:
             if ext in ALL_CODE_EXTENSIONS:
                 lang = ALL_CODE_EXTENSIONS[ext]
                 all_lang_counts[lang] = all_lang_counts.get(lang, 0) + count
+            # YAML/JSON/MD 也参与语言统计（用于 config-heavy 仓库如 semgrep-rules）
+            elif ext in (".yml", ".yaml"):
+                all_lang_counts["YAML"] = all_lang_counts.get("YAML", 0) + count
+            elif ext == ".json":
+                all_lang_counts["JSON"] = all_lang_counts.get("JSON", 0) + count
+            elif ext == ".md":
+                all_lang_counts["Markdown"] = all_lang_counts.get("Markdown", 0) + count
 
         # 如果 skill_prompt 被分析了，加入语言统计
         if self.skill_prompts_analyzed > 0:
             all_lang_counts["Skill Prompt (MD)"] = self.skill_prompts_analyzed
 
+        # 支持的语言集合（包含配置文件类型）
+        FULLY_SUPPORTED = set(SUPPORTED_CODE_EXTENSIONS) | {".yml", ".yaml", ".json", ".md"}
+
         if all_lang_counts:
             self.dominant_language = max(all_lang_counts, key=all_lang_counts.get)
-            if self.dominant_language == "Skill Prompt (MD)":
-                self.dominant_language_supported = True  # 我们支持 skill prompt 分析
+            if self.dominant_language in ("Skill Prompt (MD)", "YAML", "JSON", "Markdown"):
+                self.dominant_language_supported = True
             else:
                 dominant_exts = [ext for ext, lang in ALL_CODE_EXTENSIONS.items()
                               if lang == self.dominant_language]
                 self.dominant_language_supported = any(
-                    ext in SUPPORTED_CODE_EXTENSIONS for ext in dominant_exts
+                    ext in FULLY_SUPPORTED for ext in dominant_exts
                 )
         else:
             self.dominant_language = "N/A"
@@ -1174,10 +1186,11 @@ class ScanStats:
         )
 
 
-def analyze_repo(repo_path: str, max_file_size_kb: int = 500) -> tuple[list[StaticAnalysisResult], ScanStats]:
+def analyze_repo(repo_path: str, max_file_size_kb: int = 500, max_files: int = 300) -> tuple[list[StaticAnalysisResult], ScanStats]:
     """
     扫描整个仓库。
     返回 (results, stats) — stats 包含详细的扫描统计。
+    max_files: 最多扫描文件数，防止超大仓库卡死（默认300）
     """
     results = []
     stats = ScanStats()
@@ -1188,6 +1201,11 @@ def analyze_repo(repo_path: str, max_file_size_kb: int = 500) -> tuple[list[Stat
         dirs[:] = [d for d in dirs if d not in skip_dirs and not d.endswith(".egg-info")]
 
         for filename in files:
+            # 超出文件上限时停止扫描
+            if stats.total_files_walked >= max_files:
+                stats.files_skipped_type += 1
+                continue
+
             filepath = os.path.join(root, filename)
             stats.total_files_walked += 1
 
