@@ -284,119 +284,6 @@ def generate_report(
     md_lines.append(f"| Files Scanned | {files_analyzed} / {total_files} |")
     md_lines.append("")
 
-    # ========== 安全条件摘要（置顶，核心新增） ==========
-    if trust_chain_result:
-        assumption_results = trust_chain_result.get("trust_assumption_results", [])
-        raw_assumptions   = trust_chain_result.get("trust_assumptions", [])
-        all_assumptions   = assumption_results if assumption_results else raw_assumptions
-
-        verified_list    = [a for a in all_assumptions if a.get("verified") is True]
-        unverified_list  = [a for a in all_assumptions if a.get("verified") is not True]
-        any_downgraded   = any(a.get("downgrade_applied") for a in verified_list)
-
-        if all_assumptions:
-            md_lines.append("## 🔐 Trust Analysis")
-            md_lines.append("")
-
-            # ---- 安全条件清单（核心，置顶） ----
-            md_lines.append("### This skill is safe to use when the following conditions are met:")
-            md_lines.append("")
-            idx = 1
-            for a in all_assumptions:
-                subj = a.get("subject", "")
-                claim = a.get("claim", "")
-                v = a.get("verified")
-                conf = a.get("verification_confidence", 0)
-                if v is True:
-                    check = "✅"
-                elif v is False:
-                    check = "❌"
-                else:
-                    check = "⚠️"
-                md_lines.append(f"{idx}. {check} **{subj}** is trustworthy *(confidence: {conf:.0%})*")
-                idx += 1
-            md_lines.append("")
-
-            # ---- 逐条展开验证结果 ----
-            if verified_list:
-                md_lines.append("---")
-                md_lines.append("")
-                md_lines.append("### ✅ Verified — Conditions Confirmed")
-                md_lines.append("")
-                for a in verified_list:
-                    subj     = a.get("subject", "")
-                    claim    = a.get("claim", "")
-                    conf     = a.get("verification_confidence", 0)
-                    summary  = a.get("verification_summary", "")
-                    evidence = a.get("verification_evidence", [])
-                    downgraded = a.get("downgrade_applied", False)
-
-                    md_lines.append(f"#### ✅ {subj} &nbsp; `{conf:.0%} confidence`")
-                    md_lines.append("")
-                    md_lines.append(f"> **Trust assumption:** {claim}")
-                    md_lines.append("")
-                    if summary:
-                        md_lines.append(f"{summary}")
-                        md_lines.append("")
-                    for ev in evidence[:3]:
-                        icon = "🟢" if ev.get("weight") in ("strong", "positive") else "🟡"
-                        title = ev.get("title", "")
-                        url   = ev.get("url", "")
-                        snip  = ev.get("snippet", "")[:180]
-                        if url:
-                            md_lines.append(f"- {icon} [{title}]({url})")
-                        else:
-                            md_lines.append(f"- {icon} {title}")
-                        if snip:
-                            md_lines.append(f"  *{snip}*")
-                    if evidence:
-                        md_lines.append("")
-                    if downgraded:
-                        md_lines.append(
-                            "**🔽 Risk level adjusted:** Related findings have been downgraded "
-                            "because this assumption is verified — they are no longer counted as CRITICAL."
-                        )
-                        md_lines.append("")
-
-            # ---- 未能验证的假设 ----
-            if unverified_list:
-                md_lines.append("---")
-                md_lines.append("")
-                md_lines.append("### ⚠️ Unverified — Manual Review Required")
-                md_lines.append("")
-                md_lines.append(
-                    "> These assumptions **could not be automatically verified**. "
-                    "Please confirm them manually before using this skill in production."
-                )
-                md_lines.append("")
-                for a in unverified_list:
-                    subj        = a.get("subject", "")
-                    claim       = a.get("claim", "")
-                    why         = a.get("why_it_matters", "")
-                    consequence = a.get("consequence_if_false", "")
-                    v           = a.get("verified")
-                    conf        = a.get("verification_confidence", 0)
-                    summary     = a.get("verification_summary", "")
-
-                    icon  = "❌" if v is False else "❓"
-                    label = f"Verification FAILED ({conf:.0%})" if v is False else f"Inconclusive ({conf:.0%})"
-                    md_lines.append(f"#### {icon} {subj} &nbsp; `{label}`")
-                    md_lines.append("")
-                    md_lines.append(f"> **Trust assumption:** {claim}")
-                    md_lines.append("")
-                    if why:
-                        md_lines.append(f"**Why it matters:** {why}")
-                        md_lines.append("")
-                    if consequence:
-                        md_lines.append(f"**If false:** ⚠️ {consequence}")
-                        md_lines.append("")
-                    if summary:
-                        md_lines.append(f"*Verification result: {summary}*")
-                        md_lines.append("")
-
-            md_lines.append("---")
-            md_lines.append("")
-
     # ---- 扫描摘要 ----
     md_lines.append("## Scan Summary")
     md_lines.append("")
@@ -434,6 +321,53 @@ def generate_report(
         emoji = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🔵", "INFO": "⚪", "SAFE": "🟢"}.get(sev, "")
         md_lines.append(f"| {emoji} {sev} | {count} |")
     md_lines.append("")
+
+    # ---- Trust Assumptions & Verification（强制置于 Severity Summary 之后）----
+    if trust_chain_result:
+        assumption_results = trust_chain_result.get("trust_assumption_results", [])
+        raw_assumptions = trust_chain_result.get("trust_assumptions", [])
+        all_assumptions = assumption_results if assumption_results else raw_assumptions
+
+        if all_assumptions:
+            verified_list = [a for a in all_assumptions if a.get("verified") is True]
+            unverified_list = [a for a in all_assumptions if a.get("verified") is not True]
+
+            md_lines.append("## Trust Assumptions & Verification")
+            md_lines.append("")
+            md_lines.append("### 🛡️ 安全运行的前提条件")
+            md_lines.append("")
+            if not unverified_list:
+                md_lines.append(
+                    "在以下核心信任假设全部满足时，当前 skill 的整体风险可按 **LOW/可接受风险** 处理；"
+                    "若任一条件失效，风险应提升并人工复核。"
+                )
+            else:
+                md_lines.append(
+                    "以下为当前 skill 的核心信任假设。未通过验证的条件需要人工确认，"
+                    "否则相关风险不应降级。"
+                )
+            md_lines.append("")
+
+            for idx, a in enumerate(all_assumptions, 1):
+                subj = a.get("subject", "")
+                claim = a.get("claim", "")
+                v = a.get("verified")
+                conf = a.get("verification_confidence", 0)
+                summary = a.get("verification_summary", "")
+                evidence = a.get("verification_evidence", [])
+
+                icon = "✅" if v is True else ("❌" if v is False else "⚠️")
+                md_lines.append(f"{idx}. {icon} **{claim or subj}** *(confidence: {conf:.0%})*")
+                if summary:
+                    md_lines.append(f"   - 检验结果：{summary}")
+                if subj:
+                    md_lines.append(f"   - 关联主体：`{subj}`")
+                for ev in evidence[:2]:
+                    title = ev.get("title", "")
+                    url = ev.get("url", "")
+                    if title and url:
+                        md_lines.append(f"   - 证据：[{title}]({url})")
+                md_lines.append("")
 
     # 详细发现
     md_lines.append("## Detailed Findings")
