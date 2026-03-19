@@ -288,6 +288,18 @@ def run_audit(owner: str, repo: str, repo_path: str, progress_q: queue.Queue, su
         llm_results = []
         openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
         files_with_findings = [r for r in static_results if hasattr(r, 'findings') and r.findings]
+
+        # 强制语义层审查：skill_prompt 文件即使静态发现为 0 也必须进入 LLM
+        forced_skill_prompt_files = [
+            r for r in static_results
+            if hasattr(r, 'language') and r.language == "skill_prompt"
+        ]
+        existing_ids = {id(r) for r in files_with_findings}
+        for r in forced_skill_prompt_files:
+            if id(r) not in existing_ids:
+                files_with_findings.append(r)
+                existing_ids.add(id(r))
+
         # 最多审查2个文件，防止超时
         files_with_findings = files_with_findings[:2]
         if openrouter_key and files_with_findings:
@@ -319,7 +331,23 @@ def run_audit(owner: str, repo: str, repo_path: str, progress_q: queue.Queue, su
                         file_content=file_content,
                         skill_context=skill_context,
                     )
-                    llm_results.append(consensus)
+
+                    # 附加上下文标签：标记“无静态锚点但被语义层识别”的攻击场景
+                    cdict = consensus.to_dict() if hasattr(consensus, "to_dict") else dict(consensus)
+                    static_count = len(findings_dicts)
+                    forced_semantic_review = (language == "skill_prompt" and static_count == 0)
+                    detected_semantic_attack = (
+                        forced_semantic_review and (
+                            cdict.get("is_malicious", False) or
+                            cdict.get("final_severity") in ("CRITICAL", "HIGH", "MEDIUM")
+                        )
+                    )
+                    cdict["_audit_file"] = filepath
+                    cdict["_audit_language"] = language
+                    cdict["_static_finding_count"] = static_count
+                    cdict["_forced_semantic_review"] = forced_semantic_review
+                    cdict["_semantic_attack_detected"] = detected_semantic_attack
+                    llm_results.append(cdict)
             except Exception as llm_err:
                 progress_q.put({"step": "llm_warn", "message": f"LLM 审查部分失败: {str(llm_err)}", "pct": 83})
 

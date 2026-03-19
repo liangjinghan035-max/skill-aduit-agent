@@ -241,6 +241,17 @@ def audit_single_repo(
            (hasattr(r, 'language') and r.language in ("skill_prompt", "tool_config"))
     ]
 
+    # 强制语义层审查：skill_prompt 文件即使静态发现为 0 也必须进入 LLM
+    forced_skill_prompt_files = [
+        r for r in static_results
+        if hasattr(r, 'language') and r.language == "skill_prompt"
+    ]
+    existing_ids = {id(r) for r in files_with_findings}
+    for r in forced_skill_prompt_files:
+        if id(r) not in existing_ids:
+            files_with_findings.append(r)
+            existing_ids.add(id(r))
+
     llm_results = []
     scenario_results = []
 
@@ -277,7 +288,23 @@ def audit_single_repo(
                     file_content=file_content,
                     skill_context=skill_context[:3000],
                 )
-                llm_results.append(consensus)
+
+                # 附加上下文标签：标记“无静态锚点但被语义层识别”的攻击场景
+                cdict = consensus.to_dict() if hasattr(consensus, "to_dict") else dict(consensus)
+                static_count = len(findings_data)
+                forced_semantic_review = (getattr(sr, "language", "") == "skill_prompt" and static_count == 0)
+                detected_semantic_attack = (
+                    forced_semantic_review and (
+                        cdict.get("is_malicious", False) or
+                        cdict.get("final_severity") in ("CRITICAL", "HIGH", "MEDIUM")
+                    )
+                )
+                cdict["_audit_file"] = sr.file
+                cdict["_audit_language"] = getattr(sr, "language", "unknown")
+                cdict["_static_finding_count"] = static_count
+                cdict["_forced_semantic_review"] = forced_semantic_review
+                cdict["_semantic_attack_detected"] = detected_semantic_attack
+                llm_results.append(cdict)
 
                 # 检查 LLM 是否真的返回了有效结果
                 if consensus.final_severity == "UNKNOWN":

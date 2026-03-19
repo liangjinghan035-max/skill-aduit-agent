@@ -20,7 +20,7 @@ _PROXY_PORT = os.environ.get("PROXY_PORT", "")
 
 # 针对头部协议维护“官方 API 域名”白名单（可持续扩展）
 OFFICIAL_API_DOMAINS = {
-    "1inch": ["api.1inch.dev", "api.1inch.io", "fusion.1inch.io", "1inch.dev", "1inch.io"],
+    "1inch": ["api.1inch.com", "api.1inch.dev", "api.1inch.io", "fusion.1inch.io", "1inch.dev", "1inch.io"],
 }
 
 OFFICIAL_DOC_URLS = {
@@ -29,6 +29,69 @@ OFFICIAL_DOC_URLS = {
         "https://business.1inch.com/portal/documentation",
     ]
 }
+
+# 官方站点限定检索，减少无关结果污染
+OFFICIAL_SEARCH_SITES = {
+    "1inch": ["business.1inch.com", "1inch.dev", "github.com/1inch"],
+}
+
+# IANA/文档占位域名
+PLACEHOLDER_DOMAINS = {
+    "example.com", "www.example.com",
+    "example.org", "www.example.org",
+    "example.net", "www.example.net",
+    "localhost", "127.0.0.1", "0.0.0.0",
+    "test", "invalid",
+}
+
+# 头部服务白名单：跳过负面新闻检索，避免误报
+TRUSTED_SERVICES_WHITELIST = {
+    "github", "google", "microsoft", "amazon", "anthropic",
+    "openai", "cloudflare", "stripe", "aws", "azure"
+}
+
+
+def _normalize_domain(subject: str) -> str:
+    return subject.replace("https://", "").replace("http://", "").split("/")[0].lower().strip()
+
+
+def _is_placeholder_domain(domain: str) -> bool:
+    d = _normalize_domain(domain)
+    if not d:
+        return True
+    if d in PLACEHOLDER_DOMAINS:
+        return True
+    if d.endswith(".example") or d.endswith(".invalid") or d.endswith(".local"):
+        return True
+    if d.endswith(".test"):
+        return True
+    return False
+
+
+def _is_trusted_service(subject: str) -> bool:
+    s = (subject or "").strip().lower()
+    if not s:
+        return False
+    if s.startswith("www."):
+        s = s[4:]
+    if s in TRUSTED_SERVICES_WHITELIST:
+        return True
+    if "." in s:
+        svc = _service_from_domain(s)
+        if svc in TRUSTED_SERVICES_WHITELIST:
+            return True
+    return False
+
+
+def _trusted_service_name(subject: str) -> str:
+    s = (subject or "").strip().lower()
+    if s.startswith("www."):
+        s = s[4:]
+    if s in TRUSTED_SERVICES_WHITELIST:
+        return s
+    if "." in s:
+        return _service_from_domain(s)
+    return s
 
 
 def _service_from_domain(domain: str) -> str:
@@ -95,19 +158,25 @@ class TrustAssumption:
 
 def _verify_api_endpoint(assumption: TrustAssumption) -> tuple:
     subject = assumption.subject
-    domain = subject.replace("https://", "").replace("http://", "").split("/")[0].lower()
+    domain = _normalize_domain(subject)
+
+    # 占位/示例域名：直接视为文档示例，不进入真实风控
+    if _is_placeholder_domain(domain):
+        evidence = [{
+            "title": "Reserved example domain",
+            "url": "https://www.iana.org/domains/reserved",
+            "snippet": f"{domain} is a reserved/example domain used for documentation and should not be treated as a production endpoint.",
+            "weight": "informational",
+        }]
+        return True, 0.95, evidence, f"{domain} is a reserved example domain (documentation placeholder), not a live third-party trust dependency."
+
     service_name = _service_from_domain(domain)
-
-    results = _brave_search(f'"{domain}" official API documentation', 4)
-    results += _brave_search(f'{service_name} official API endpoint', 3)
-
-    evidence, score = [], 0.0
-
     allowlist = OFFICIAL_API_DOMAINS.get(service_name, [])
     has_allowlist = bool(allowlist)
     domain_pass = _domain_matches_allowlist(domain, allowlist) if has_allowlist else None
 
-    # 先做“域名真伪”硬校验（如果存在该服务白名单）
+    evidence, score = [], 0.0
+
     if has_allowlist:
         if domain_pass:
             score += 0.65
@@ -125,12 +194,24 @@ def _verify_api_endpoint(assumption: TrustAssumption) -> tuple:
                 "weight": "negative",
             })
 
-    for r in results[:6]:
+    # 动态核验：优先官方站点限定搜索
+    results = []
+    for site in OFFICIAL_SEARCH_SITES.get(service_name, [])[:3]:
+        results += _brave_search(f'site:{site} "{domain}"', 3)
+
+    # 通用回退
+    results += _brave_search(f'"{domain}" official API documentation', 4)
+    results += _brave_search(f'{service_name} official API endpoint', 3)
+
+    for r in results[:8]:
         url = r.get("url", "").lower()
         desc = (r.get("title", "") + " " + r.get("description", "")).lower()
 
+        official_sites = OFFICIAL_SEARCH_SITES.get(service_name, [])
+        is_official_site = any(site in url for site in official_sites)
+
         if has_allowlist:
-            is_official = any((a in url) for a in allowlist)
+            is_official = any((a in url) for a in allowlist) or is_official_site
         else:
             is_official = service_name in url or domain in url
 
@@ -138,12 +219,12 @@ def _verify_api_endpoint(assumption: TrustAssumption) -> tuple:
 
         if is_official and mentions:
             score += 0.25
-            evidence.append({"title": r["title"], "url": r["url"],
-                             "snippet": r["description"][:200], "weight": "strong"})
+            evidence.append({"title": r.get("title", ""), "url": r.get("url", ""),
+                             "snippet": r.get("description", "")[:200], "weight": "strong"})
         elif mentions:
             score += 0.1
-            evidence.append({"title": r["title"], "url": r["url"],
-                             "snippet": r["description"][:200], "weight": "moderate"})
+            evidence.append({"title": r.get("title", ""), "url": r.get("url", ""),
+                             "snippet": r.get("description", "")[:200], "weight": "moderate"})
 
     score = min(score, 1.0)
 
@@ -167,6 +248,26 @@ def _verify_api_endpoint(assumption: TrustAssumption) -> tuple:
 def _verify_service_reputation(assumption: TrustAssumption) -> tuple:
     subject = assumption.subject
     subject_l = subject.lower()
+
+    # 占位/示例域名或服务：不应被当成真实第三方服务做威胁情报
+    if _is_placeholder_domain(subject_l) or subject_l in {"example"}:
+        evidence = [{
+            "title": "Reserved example domain",
+            "url": "https://www.iana.org/domains/reserved",
+            "snippet": f"{subject} is a documentation placeholder/reserved name, not an operational third-party service.",
+            "weight": "informational",
+        }]
+        return True, 0.95, evidence, f"{subject} is a placeholder/reserved example target, excluded from service reputation risk checks."
+
+    # 头部服务白名单：直接通过，不做负面新闻抓取
+    if _is_trusted_service(subject):
+        svc = _trusted_service_name(subject)
+        return True, 0.98, [{
+            "title": "Trusted service whitelist policy",
+            "url": "https://github.com/" if svc == "github" else "",
+            "snippet": f"{svc} matched TRUSTED_SERVICES_WHITELIST and was excluded from negative-signal web scraping.",
+            "weight": "strong",
+        }], f"{svc} is in TRUSTED_SERVICES_WHITELIST; reputation verification is marked VERIFIED by policy."
 
     # 针对头部协议给出可解释、稳定的声誉验证信号
     if subject_l == "1inch":
@@ -197,26 +298,34 @@ def _verify_service_reputation(assumption: TrustAssumption) -> tuple:
             "1inch has strong official presence (developer portal, business docs, maintained OSS org) and is widely integrated in DeFi.",
         )
 
-    results = _brave_search(f'{subject} TVL users reputation DeFi', 4)
-    results += _brave_search(f'is {subject} safe trusted legit', 3)
+    # 通用声誉检索：移除 DeFi/TVL 偏置词
+    results = _brave_search(f'"{subject}" official documentation', 3)
+    results += _brave_search(f'"{subject}" github organization', 3)
+    results += _brave_search(f'"{subject}" reputation security incident', 3)
 
-    POS = ["leading", "largest", "top", "popular", "trusted", "audited", "billions",
-           "million users", "tvl", "defillama", "coingecko", "established", "flagship"]
-    NEG = ["hack", "exploit", "rug", "scam", "fraud", "exit scam", "compromised"]
+    if "." in subject_l:
+        results += _brave_search(f'site:{subject_l} "{subject_l}"', 2)
+
+    POS = [
+        "official", "documentation", "github", "organization", "maintained",
+        "trusted", "widely used", "established", "enterprise", "production",
+        "open source", "verified", "foundation", "stable"
+    ]
+    NEG = ["hack", "exploit", "rug", "scam", "fraud", "exit scam", "compromised", "malware", "phishing"]
 
     pos, neg, evidence = 0, 0, []
-    for r in results[:6]:
+    for r in results[:8]:
         text = (r.get("title", "") + " " + r.get("description", "")).lower()
         ph = sum(1 for s in POS if s in text)
         nh = sum(1 for s in NEG if s in text)
         pos += ph
         neg += nh
         if ph > 0:
-            evidence.append({"title": r["title"], "url": r["url"],
-                             "snippet": r["description"][:200], "weight": "positive"})
+            evidence.append({"title": r.get("title", ""), "url": r.get("url", ""),
+                             "snippet": r.get("description", "")[:200], "weight": "positive"})
         if nh > 0:
-            evidence.append({"title": r["title"], "url": r["url"],
-                             "snippet": r["description"][:200], "weight": "negative"})
+            evidence.append({"title": r.get("title", ""), "url": r.get("url", ""),
+                             "snippet": r.get("description", "")[:200], "weight": "negative"})
 
     if neg >= 2:
         return False, 0.1, evidence[:4], f"⚠️ {neg} negative signal(s) found (hack/exploit) — service may be risky"

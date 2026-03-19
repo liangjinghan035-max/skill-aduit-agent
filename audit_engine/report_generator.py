@@ -117,41 +117,130 @@ def generate_report(
                     "line": 0,
                 })
 
-    # 处理 LLM 审查结果
+    # 处理 LLM 审查结果（单条 finding 可能包含多模型 verdict，需要先折叠为 group 级别）
     llm_failures = 0
+    llm_group_severities = []
+
+    def _extract_group_severity(lr_item):
+        # 1) 直接 final_severity
+        if hasattr(lr_item, 'final_severity'):
+            return getattr(lr_item, 'final_severity', "UNKNOWN")
+        if isinstance(lr_item, dict) and lr_item.get("final_severity"):
+            return lr_item.get("final_severity", "UNKNOWN")
+
+        # 2) 从 individual_verdicts 折叠
+        verdicts = None
+        if isinstance(lr_item, dict):
+            verdicts = lr_item.get("individual_verdicts")
+        elif hasattr(lr_item, 'individual_verdicts'):
+            verdicts = getattr(lr_item, 'individual_verdicts', None)
+
+        if not verdicts:
+            return "UNKNOWN"
+
+        order = ["SAFE", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
+        sev_list = []
+        for v in verdicts:
+            if isinstance(v, dict):
+                sv = v.get("severity") or v.get("final_severity")
+            else:
+                sv = getattr(v, "severity", None) or getattr(v, "final_severity", None)
+            if sv in order:
+                sev_list.append(sv)
+
+        if not sev_list:
+            return "UNKNOWN"
+
+        # 保守聚合：取最高风险
+        return max(sev_list, key=lambda s: order.index(s))
+
     for lr in llm_results:
-        if hasattr(lr, 'final_severity'):
-            sev = lr.final_severity
-        elif isinstance(lr, dict):
-            sev = lr.get("final_severity", "UNKNOWN")
-        else:
-            continue
+        sev = _extract_group_severity(lr)
         if sev == "UNKNOWN":
             llm_failures += 1
-        else:
-            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+            continue
+        llm_group_severities.append(sev)
+        severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
     total_findings = sum(v for k, v in severity_counts.items() if k not in ("SAFE", "INFO"))
 
     # 确定总体风险 —— 区分完全无法审计 / 部分覆盖 / 正常审计
+    def _calc_base_risk_from_counts(counts: dict, files_scanned: int) -> str:
+        if counts.get("CRITICAL", 0) > 0:
+            return "CRITICAL"
+        if counts.get("HIGH", 0) > 0:
+            return "HIGH"
+        if counts.get("MEDIUM", 0) > 0:
+            return "MEDIUM"
+        if counts.get("LOW", 0) > 0:
+            return "LOW"
+        if files_scanned > 0:
+            return "SAFE"
+        return "UNKNOWN"
+
+    def _max_risk(base_risk: str, cap: str) -> str:
+        order = ["SAFE", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
+        if base_risk not in order or cap not in order:
+            return base_risk
+        return order[min(order.index(base_risk), order.index(cap))]
+
+    def _apply_trust_verdict_override(risk_text: str, verdict: str) -> str:
+        """
+        Trust Chain verdict 对 Overall Risk 的强制覆盖规则：
+        - DO_NOT_USE => 必须 CRITICAL
+        - VERIFY_BEFORE_USE => 最低 MEDIUM
+        保留 PARTIAL 后缀说明（如存在）。
+        """
+        order = ["SAFE", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
+
+        # 仅在可比较风险状态下覆盖，跳过 INCOMPLETE / EMPTY_REPO 等特殊状态
+        if risk_text in {"INCOMPLETE", "EMPTY_REPO", "UNKNOWN"}:
+            return risk_text
+
+        base = None
+        suffix = ""
+        for r in order:
+            if risk_text == r:
+                base = r
+                suffix = ""
+                break
+            if risk_text.startswith(r + " "):
+                base = r
+                suffix = risk_text[len(r):]
+                break
+
+        # 类似 "PARTIAL — ..." 无可比较基线，统一转为 MEDIUM/CRITICAL 并保留说明
+        if base is None:
+            if verdict == "DO_NOT_USE":
+                return f"CRITICAL ({risk_text})"
+            if verdict == "VERIFY_BEFORE_USE":
+                return f"MEDIUM ({risk_text})"
+            return risk_text
+
+        if verdict == "DO_NOT_USE":
+            return f"CRITICAL{suffix}"
+
+        if verdict == "VERIFY_BEFORE_USE":
+            floor = "MEDIUM"
+            new_base = order[max(order.index(base), order.index(floor))]
+            return f"{new_base}{suffix}"
+
+        return risk_text
+
+    # LLM 共识门控：当三模型共识偏安全时，限制最终风险上限
+    # 使用上面折叠后的 group 级严重度，避免“字段缺失导致门控失效”
+    llm_guardrail_cap = None
+    if llm_group_severities and all(s in {"SAFE", "LOW"} for s in llm_group_severities):
+        llm_guardrail_cap = "MEDIUM"
+
     if is_incomplete:
         overall_risk = "INCOMPLETE"
     elif is_empty_repo:
         overall_risk = "EMPTY_REPO"
     else:
-        # 先按 finding 确定 severity
-        if severity_counts.get("CRITICAL", 0) > 0:
-            base_risk = "CRITICAL"
-        elif severity_counts.get("HIGH", 0) > 0:
-            base_risk = "HIGH"
-        elif severity_counts.get("MEDIUM", 0) > 0:
-            base_risk = "MEDIUM"
-        elif severity_counts.get("LOW", 0) > 0:
-            base_risk = "LOW"
-        elif files_analyzed > 0:
-            base_risk = "SAFE"
-        else:
-            base_risk = "UNKNOWN"
+        base_risk = _calc_base_risk_from_counts(severity_counts, files_analyzed)
+        if llm_guardrail_cap:
+            base_risk = _max_risk(base_risk, llm_guardrail_cap)
 
         # 如果核心代码未被覆盖，追加 PARTIAL 标记
         if is_partial:
@@ -205,25 +294,16 @@ def generate_report(
                     sev = di.get("severity", "HIGH")
                     severity_counts[sev] = severity_counts.get(sev, 0) + 1
         for lr in llm_results:
-            sev = lr.get("final_severity") if isinstance(lr, dict) else getattr(lr, "final_severity", None)
+            sev = _extract_group_severity(lr)
             if sev and sev != "UNKNOWN":
                 severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
-        # 重新计算 overall_risk
+        # 重新计算 overall_risk（应用 LLM guardrail）
         total_findings = sum(v for k, v in severity_counts.items() if k not in ("SAFE", "INFO"))
         if not is_incomplete and not is_empty_repo:
-            if severity_counts.get("CRITICAL", 0) > 0:
-                base_risk = "CRITICAL"
-            elif severity_counts.get("HIGH", 0) > 0:
-                base_risk = "HIGH"
-            elif severity_counts.get("MEDIUM", 0) > 0:
-                base_risk = "MEDIUM"
-            elif severity_counts.get("LOW", 0) > 0:
-                base_risk = "LOW"
-            elif files_analyzed > 0:
-                base_risk = "SAFE"
-            else:
-                base_risk = "UNKNOWN"
+            base_risk = _calc_base_risk_from_counts(severity_counts, files_analyzed)
+            if llm_guardrail_cap:
+                base_risk = _max_risk(base_risk, llm_guardrail_cap)
             if is_partial:
                 if total_findings > 0:
                     overall_risk = f"{base_risk} (PARTIAL AUDIT — {dominant_lang} code not analyzed)"
@@ -231,6 +311,12 @@ def generate_report(
                     overall_risk = f"PARTIAL — core language ({dominant_lang}) not analyzed"
             else:
                 overall_risk = base_risk
+
+    # Trust Chain verdict 强制覆盖 Overall Risk
+    trust_verdict = None
+    if isinstance(trust_chain_result, dict):
+        trust_verdict = trust_chain_result.get("overall_trust_verdict")
+    overall_risk = _apply_trust_verdict_override(overall_risk, trust_verdict)
 
     # ========== 生成 Markdown ==========
     md_lines = []
@@ -400,6 +486,28 @@ def generate_report(
     md_lines.append("## LLM Cross-Validation Results")
     md_lines.append("")
 
+    # 语义层命中摘要（无静态锚点）
+    semantic_hits = [
+        (lr if isinstance(lr, dict) else (lr.to_dict() if hasattr(lr, 'to_dict') else {}))
+        for lr in llm_results
+        if (lr if isinstance(lr, dict) else (lr.to_dict() if hasattr(lr, 'to_dict') else {})).get("_semantic_attack_detected")
+    ]
+    if semantic_hits:
+        md_lines.append("### 🚨 Semantic Attack Detected (No Static Anchor)")
+        md_lines.append("")
+        md_lines.append(
+            "以下命中来自 **skill_prompt 语义层审查**：静态规则未给出锚点（0 findings），"
+            "但 LLM 共识已识别出潜在恶意/高风险指令。"
+        )
+        md_lines.append("")
+        for i, hit in enumerate(semantic_hits, 1):
+            md_lines.append(
+                f"- #{i} `{hit.get('_audit_file', 'unknown')}` | "
+                f"severity={hit.get('final_severity', 'N/A')} | "
+                f"malicious={hit.get('is_malicious', False)}"
+            )
+        md_lines.append("")
+
     for j, lr in enumerate(llm_results):
         lr_dict = lr if isinstance(lr, dict) else (lr.to_dict() if hasattr(lr, 'to_dict') else {})
         md_lines.append(f"### Analysis Group #{j + 1}")
@@ -408,6 +516,10 @@ def generate_report(
         md_lines.append(f"- **Confidence**: {lr_dict.get('final_confidence', 0):.0%}")
         md_lines.append(f"- **Is Malicious**: {lr_dict.get('is_malicious', False)}")
         md_lines.append(f"- **Is Gray Area**: {lr_dict.get('is_gray_area', False)}")
+        if lr_dict.get("_forced_semantic_review"):
+            md_lines.append("- **Semantic Review Mode**: ✅ `skill_prompt` forced review (static findings = 0)")
+        if lr_dict.get("_semantic_attack_detected"):
+            md_lines.append("- **Semantic Attack Detected (No Static Anchor)**: 🚨 true")
         md_lines.append("")
 
         # 灰色地带详细分析
